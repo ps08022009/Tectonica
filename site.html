@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Gravity Simulation</title>
+<style>
+  body { margin: 0; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r150/three.min.js"></script>
+<script>
+// ---------------- VECTOR UTILITIES ----------------
+function vec(x=0,y=0,z=0){ return [x,y,z]; }
+function mag(v){ return Math.sqrt(v[0]**2+v[1]**2+v[2]**2); }
+function norm(v){ let m=mag(v); return m? v.map(c=>c/m) : [0,0,0]; }
+function add(v1,v2){ return v1.map((c,i)=>c+v2[i]); }
+function sub(v1,v2){ return v1.map((c,i)=>c-v2[i]); }
+function mul(v,scalar){ return v.map(c=>c*scalar); }
+
+// ---------------- BODY CLASSES ----------------
+class Body {
+  constructor(x,y,z,vx,vy,vz,mass,radius,color){
+    this.pos = [x,y,z]; this.vel=[vx,vy,vz]; this.mass=mass; this.radius=radius; this.color=color;
+  }
+  applyForce(f,dt){ this.vel = add(this.vel, mul(f, dt/this.mass)); }
+  update(dt){ this.pos = add(this.pos, mul(this.vel, dt)); }
+}
+
+class Planet extends Body { constructor(x,y,z,vx,vy,vz){ super(x,y,z,vx,vy,vz,6e24,6e6,'lightblue'); } }
+class Sun extends Body { constructor(x,y,z,vx,vy,vz){ super(x,y,z,vx,vy,vz,2e30,7e8,'yellow'); } }
+class BlackHole extends Body { constructor(x,y,z,vx,vy,vz){ super(x,y,z,vx,vy,vz,5e30,1e7,'purple'); } }
+
+// ---------------- SIMULATION ----------------
+class Simulation {
+  constructor(){ this.bodies=[]; this.G=6.674e-11; }
+  addBody(b){ this.bodies.push(b); }
+  computeGravity(){
+    const n=this.bodies.length; let forces = Array(n).fill(0).map(()=>[0,0,0]);
+    for(let i=0;i<n;i++){
+      for(let j=i+1;j<n;j++){
+        let r=sub(this.bodies[j].pos,this.bodies[i].pos);
+        let dist = mag(r)+1e-9;
+        let fmag = this.G*this.bodies[i].mass*this.bodies[j].mass/(dist**2);
+        let f = mul(norm(r), fmag);
+        forces[i]=add(forces[i],f);
+        forces[j]=sub(forces[j],f);
+      }
+    }
+    return forces;
+  }
+  update(dt){
+    const forces=this.computeGravity();
+    this.bodies.forEach((b,i)=>b.applyForce(forces[i], dt));
+    this.bodies.forEach(b=>b.update(dt));
+  }
+}
+
+// ---------------- SETUP SIM ----------------
+let sim = new Simulation();
+let sun = new Sun(0,0,0,0,0,0);
+let earth = new Planet(1.5e11,0,0,0,30000,0);
+sim.addBody(sun); sim.addBody(earth);
+
+// ---------------- THREE.JS ----------------
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 1e7, 1e13);
+camera.position.z = 3e11;
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+let meshes = [];
+sim.bodies.forEach(b=>{
+  let geo = new THREE.SphereGeometry(b.radius*1e-7, 16,16);
+  let mat = new THREE.MeshBasicMaterial({color:b.color});
+  let mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(...b.pos);
+  scene.add(mesh);
+  meshes.push(mesh);
+});
+
+// ---------------- ANIMATION ----------------
+const dt = 60*60; // one hour per step
+function animate(){
+  requestAnimationFrame(animate);
+  sim.update(dt);
+  sim.bodies.forEach((b,i)=>meshes[i].position.set(...b.pos));
+  renderer.render(scene,camera);
+}
+animate();
+</script>
+</body>
+</html>

@@ -6,11 +6,6 @@ import math
 import random
 import numpy as np
 import time
-# server.py
-import asyncio
-import websockets
-import json
-from simulation import Simulation, Planet, Sun  # Your simulation code
 
 
 # ---------------------------------------------
@@ -133,29 +128,5 @@ if __name__ == "__main__":
         print(f"Earth vel: {earth.velocity}")
         print("-" * 40)
         time.sleep(0.03)
-
-    async def send_positions(websocket):
-        sim = Simulation()
-        sun = Sun(0,0,0,0,0,0)
-        earth = Planet(1.5e11, 0, 0, 0, 30000, 0)
-        sim.add_body(sun)
-        sim.add_body(earth)
-
-    dt = 60*60  # 1 hour
-    steps = 1000
-
-    for _ in range(steps):
-        sim.update(dt)
-        # Send all positions as JSON
-        positions = [{"name":"sun", "pos": sun.position.tolist()},
-                     {"name":"earth", "pos": earth.position.tolist()}]
-        await websocket.send(json.dumps(positions))
-        await asyncio.sleep(0.05)  # simulate time between frames
-
-    async def main():
-        async with websockets.serve(send_positions, "localhost", 8765):
-            await asyncio.Future()  # run forever
-
-    asyncio.run(main())
 
     print("\nSimulation complete.")
