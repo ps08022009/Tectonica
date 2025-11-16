@@ -1,62 +1,147 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>3D Gravity Simulation</title>
-<style>
-  body { margin: 0; overflow: hidden; background: #000; }
-  canvas { display: block; }
-  #info {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    color: white;
-    font-family: monospace;
-    font-size: 14px;
-    pointer-events: none;
-  }
-  #controls {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    color: white;
-    font-family: monospace;
-    font-size: 12px;
-    background: rgba(0,0,0,0.7);
-    padding: 15px;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,0.2);
-  }
-  #controls input[type="range"] {
-    width: 120px;
-    vertical-align: middle;
-  }
-  #controls > div {
-    margin-bottom: 8px;
-  }
-  #controls label {
-    cursor: pointer;
-  }
-</style>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.8);
+      padding: 15px;
+      color: white;
+      border-radius: 8px;
+      font-size: 14px;
+      max-width: 280px;
+      z-index: 100;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.8);
+      padding: 15px;
+      color: white;
+      border-radius: 8px;
+      font-size: 12px;
+      max-width: 250px;
+      z-index: 100;
+    }
+    .control-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: bold;
+      color: #4CAF50;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      margin-right: 5px;
+      margin-top: 5px;
+    }
+    button:hover {
+      background: #45a049;
+    }
+    select {
+      width: 100%;
+      padding: 5px;
+      background: #333;
+      color: white;
+      border: 1px solid #555;
+      border-radius: 4px;
+    }
+    .stats {
+      font-size: 11px;
+      line-height: 1.6;
+    }
+    .stat-label {
+      color: #4CAF50;
+      font-weight: bold;
+    }
+  </style>
 </head>
 <body>
-<div id="info">Click and drag to rotate | Scroll to zoom | Press SPACE to pause | Press R to reset</div>
-<div id="controls">
-  <div>Speed: <input type="range" id="speedSlider" min="0.1" max="3" step="0.1" value="1"> <span id="speedValue">1.0</span>x</div>
-  <div>
-    <label><input type="checkbox" id="trailsToggle" checked> Show Trails</label>
+  <div id="controls">
+    <div style="font-size: 16px; font-weight: bold; margin-bottom: 10px; color: #4CAF50;">
+      ☀ Solar System Simulator
+    </div>
+    <div id="status" style="margin-bottom: 10px; color: #ffd700;">Running</div>
+    
+    <div class="control-group">
+      <label>Time Speed: <span id="speedValue">1.0</span>x</label>
+      <input type="range" id="speedSlider" min="0.1" max="5" step="0.1" value="1">
+    </div>
+    
+    <div class="control-group">
+      <label>Camera Follow:</label>
+      <select id="followSelect">
+        <option value="-1">Free Camera</option>
+      </select>
+    </div>
+    
+    <div class="control-group">
+      <label style="display: inline;">
+        <input type="checkbox" id="trailsToggle" checked> Show Trails
+      </label>
+    </div>
+    
+    <div class="control-group">
+      <label style="display: inline;">
+        <input type="checkbox" id="labelsToggle" checked> Show Labels
+      </label>
+    </div>
+    
+    <div class="control-group">
+      <label style="display: inline;">
+        <input type="checkbox" id="gridToggle"> Show Grid
+      </label>
+    </div>
+    
+    <div class="control-group">
+      <label style="display: inline;">
+        <input type="checkbox" id="vectorsToggle"> Show Velocities
+      </label>
+    </div>
+    
+    <div class="control-group">
+      <label style="display: inline;">
+        <input type="checkbox" id="collisionsToggle"> Enable Collisions
+      </label>
+    </div>
+    
+    <div style="margin-top: 15px;">
+      <button id="addPlanet">➕ Add Random Planet</button>
+      <button id="clearTrails">🗑️ Clear Trails</button>
+    </div>
   </div>
-  <div>
-    <label><input type="checkbox" id="labelsToggle" checked> Show Labels</label>
+  
+  <div id="info">
+    <div style="font-size: 14px; font-weight: bold; margin-bottom: 8px;">ℹ Info</div>
+    <div class="stats">
+      <div><span class="stat-label">Bodies:</span> <span id="bodyCount">6</span></div>
+      <div><span class="stat-label">Total Mass:</span> <span id="totalMass">1012.3</span></div>
+      <div style="margin-top: 10px; font-size: 10px; color: #999;">
+        <strong>Controls:</strong><br>
+        • <strong>Space</strong>: Pause/Resume<br>
+        • <strong>R</strong>: Reset Simulation<br>
+        • <strong>Mouse Drag</strong>: Rotate Camera<br>
+        • <strong>Mouse Wheel</strong>: Zoom In/Out
+      </div>
+    </div>
   </div>
-  <div>
-    <label><input type="checkbox" id="gridToggle"> Show Grid</label>
-  </div>
-  <div style="margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.2); font-size: 11px;">
-    Status: <span id="status">Running</span>
-  </div>
-</div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="script.js">
 </script>
 </body>

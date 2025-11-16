@@ -42,9 +42,13 @@ let bodies = [
 ];
 
 // Store initial state for reset
-const initialBodies = JSON.parse(JSON.stringify(bodies.map(b => ({
+let initialBodies = JSON.parse(JSON.stringify(bodies.map(b => ({
   pos: [...b.pos],
-  vel: [...b.vel]
+  vel: [...b.vel],
+  radius: b.radius,
+  mass: b.mass,
+  color: b.color,
+  name: b.name
 }))));
 
 // Apply gravitational forces
@@ -57,7 +61,11 @@ function applyGravity(){
       let distSq=dx*dx+dy*dy+dz*dz;
       let dist=Math.sqrt(distSq);
       
-      if(dist<bodies[i].radius+bodies[j].radius) continue;
+      // Handle collisions
+      if(dist<bodies[i].radius+bodies[j].radius && collisionsEnabled){
+        handleCollision(i, j);
+        continue;
+      }
       
       let force=G*bodies[i].mass*bodies[j].mass/distSq;
       let fx=force*dx/dist;
@@ -68,6 +76,71 @@ function applyGravity(){
       bodies[j].applyForce(-fx,-fy,-fz);
     }
   }
+}
+
+// Handle collisions between bodies
+function handleCollision(i, j){
+  // Merge bodies (larger absorbs smaller)
+  if(bodies[i].mass >= bodies[j].mass){
+    mergeBody(i, j);
+  } else {
+    mergeBody(j, i);
+  }
+}
+
+function mergeBody(absorber, absorbed){
+  const b1 = bodies[absorber];
+  const b2 = bodies[absorbed];
+  
+  // Conservation of momentum
+  const totalMass = b1.mass + b2.mass;
+  b1.vel[0] = (b1.mass * b1.vel[0] + b2.mass * b2.vel[0]) / totalMass;
+  b1.vel[1] = (b1.mass * b1.vel[1] + b2.mass * b2.vel[1]) / totalMass;
+  b1.vel[2] = (b1.mass * b1.vel[2] + b2.mass * b2.vel[2]) / totalMass;
+  
+  // Increase mass and radius
+  b1.mass = totalMass;
+  b1.radius = Math.cbrt((b1.radius**3 + b2.radius**3));
+  
+  // Update mesh
+  scene.remove(meshes[absorber]);
+  const geo = new THREE.SphereGeometry(b1.radius, 64, 64);
+  const mat = new THREE.MeshStandardMaterial({
+    color: b1.color,
+    emissive: b1.mass > 100 ? b1.color : 0x000000,
+    emissiveIntensity: b1.mass > 100 ? 0.8 : 0,
+    metalness: 0.3,
+    roughness: 0.7
+  });
+  meshes[absorber] = new THREE.Mesh(geo, mat);
+  meshes[absorber].position.set(...b1.pos);
+  meshes[absorber].castShadow = true;
+  meshes[absorber].receiveShadow = true;
+  scene.add(meshes[absorber]);
+  
+  // Remove absorbed body
+  removeBody(absorbed);
+}
+
+function removeBody(index){
+  scene.remove(meshes[index]);
+  scene.remove(trailLines[index]);
+  scene.remove(labelSprites[index]);
+  scene.remove(velocityArrows[index]);
+  
+  bodies.splice(index, 1);
+  meshes.splice(index, 1);
+  trailLines.splice(index, 1);
+  trailPoints.splice(index, 1);
+  labelSprites.splice(index, 1);
+  velocityArrows.splice(index, 1);
+  
+  if(followBody !== null && followBody >= index){
+    followBody = followBody === index ? null : followBody - 1;
+  }
+  
+  updateBodySelector();
+  updateStats();
 }
 
 // THREE.JS setup
@@ -128,7 +201,7 @@ bodies.forEach((b, i) => {
   trailLines.push(line);
 });
 
-// Add grid helper (optional)
+// Add grid helper
 const gridHelper = new THREE.GridHelper(300, 30, 0x444444, 0x222222);
 gridHelper.visible = false;
 scene.add(gridHelper);
@@ -181,11 +254,26 @@ bodies.forEach((b, i) => {
   labelSprites.push(sprite);
 });
 
+// Velocity vectors
+let velocityArrows = [];
+bodies.forEach((b, i) => {
+  const dir = new THREE.Vector3(...b.vel).normalize();
+  const origin = new THREE.Vector3(...b.pos);
+  const length = Math.sqrt(b.vel[0]**2 + b.vel[1]**2 + b.vel[2]**2);
+  const arrow = new THREE.ArrowHelper(dir, origin, length * 5, b.color, 3, 2);
+  arrow.visible = false;
+  scene.add(arrow);
+  velocityArrows.push(arrow);
+});
+
 // Control variables
 let isPaused = false;
 let timeSpeed = 1.0;
 let showTrails = true;
 let showLabels = true;
+let followBody = null;
+let showVectors = false;
+let collisionsEnabled = false;
 
 // Mouse controls for camera rotation
 let isDragging = false;
@@ -246,6 +334,120 @@ document.getElementById('gridToggle').addEventListener('change', (e) => {
   axesHelper.visible = e.target.checked;
 });
 
+document.getElementById('vectorsToggle').addEventListener('change', (e) => {
+  showVectors = e.target.checked;
+  velocityArrows.forEach(arrow => arrow.visible = showVectors);
+});
+
+document.getElementById('collisionsToggle').addEventListener('change', (e) => {
+  collisionsEnabled = e.target.checked;
+});
+
+document.getElementById('followSelect').addEventListener('change', (e) => {
+  const index = parseInt(e.target.value);
+  followBody = index >= 0 ? index : null;
+});
+
+document.getElementById('addPlanet').addEventListener('click', () => {
+  addRandomBody();
+});
+
+document.getElementById('clearTrails').addEventListener('click', () => {
+  trailPoints.forEach(trail => trail.length = 0);
+});
+
+// Update body selector
+function updateBodySelector(){
+  const select = document.getElementById('followSelect');
+  const currentValue = select.value;
+  select.innerHTML = '<option value="-1">Free Camera</option>';
+  bodies.forEach((b, i) => {
+    const option = document.createElement('option');
+    option.value = i;
+    option.textContent = b.name;
+    if(i.toString() === currentValue) option.selected = true;
+    select.appendChild(option);
+  });
+}
+updateBodySelector();
+
+// Update statistics
+function updateStats(){
+  document.getElementById('bodyCount').textContent = bodies.length;
+  const totalMass = bodies.reduce((sum, b) => sum + b.mass, 0);
+  document.getElementById('totalMass').textContent = totalMass.toFixed(1);
+}
+updateStats();
+
+// Add random body
+function addRandomBody(){
+  const angle = Math.random() * Math.PI * 2;
+  const distance = 60 + Math.random() * 80;
+  const x = Math.cos(angle) * distance;
+  const z = Math.sin(angle) * distance;
+  const y = (Math.random() - 0.5) * 40;
+  
+  const speed = Math.sqrt(G * bodies[0].mass / distance) * (0.7 + Math.random() * 0.3);
+  const vx = -Math.sin(angle) * speed;
+  const vz = Math.cos(angle) * speed;
+  const vy = (Math.random() - 0.5) * 0.5;
+  
+  const radius = 3 + Math.random() * 4;
+  const mass = radius / 6;
+  const color = Math.random() * 0xffffff;
+  const name = `Body ${bodies.length}`;
+  
+  const newBody = new Body(x, y, z, vx, vy, vz, radius, mass, color, name);
+  bodies.push(newBody);
+  
+  // Create mesh
+  const geo = new THREE.SphereGeometry(radius, 64, 64);
+  const mat = new THREE.MeshStandardMaterial({
+    color: color,
+    metalness: 0.3,
+    roughness: 0.7
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, y, z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+  meshes.push(mesh);
+  
+  // Create trail
+  const trailGeo = new THREE.BufferGeometry();
+  const trailMat = new THREE.LineBasicMaterial({ 
+    color: color, 
+    opacity: 0.4, 
+    transparent: true,
+    linewidth: 2
+  });
+  const line = new THREE.Line(trailGeo, trailMat);
+  line.visible = showTrails;
+  scene.add(line);
+  trailLines.push(line);
+  trailPoints.push([]);
+  
+  // Create label
+  const sprite = createLabelSprite(name, 'white');
+  sprite.position.set(x, y + radius + 8, z);
+  sprite.visible = showLabels;
+  scene.add(sprite);
+  labelSprites.push(sprite);
+  
+  // Create velocity arrow
+  const dir = new THREE.Vector3(vx, vy, vz).normalize();
+  const origin = new THREE.Vector3(x, y, z);
+  const velMag = Math.sqrt(vx*vx + vy*vy + vz*vz);
+  const arrow = new THREE.ArrowHelper(dir, origin, velMag * 5, color, 3, 2);
+  arrow.visible = showVectors;
+  scene.add(arrow);
+  velocityArrows.push(arrow);
+  
+  updateBodySelector();
+  updateStats();
+}
+
 // Keyboard controls
 document.addEventListener('keydown', (e) => {
   if(e.code === 'Space'){
@@ -255,12 +457,78 @@ document.addEventListener('keydown', (e) => {
   }
   if(e.code === 'KeyR'){
     // Reset simulation
+    scene.clear();
+    meshes = [];
+    trailLines = [];
+    trailPoints = [];
+    labelSprites = [];
+    velocityArrows = [];
+    
+    // Recreate initial bodies
+    bodies = initialBodies.map(ib => 
+      new Body(ib.pos[0], ib.pos[1], ib.pos[2], 
+               ib.vel[0], ib.vel[1], ib.vel[2],
+               ib.radius, ib.mass, ib.color, ib.name)
+    );
+    
+    // Re-add lights
+    scene.add(ambientLight);
+    scene.add(pointLight);
+    scene.add(gridHelper);
+    scene.add(axesHelper);
+    scene.add(stars);
+    
+    // Recreate all objects
     bodies.forEach((b, i) => {
-      b.pos = [...initialBodies[i].pos];
-      b.vel = [...initialBodies[i].vel];
-      b.acc = [0,0,0];
+      // Mesh
+      const geo = new THREE.SphereGeometry(b.radius, 64, 64);
+      const mat = new THREE.MeshStandardMaterial({
+        color: b.color,
+        emissive: b.mass > 100 ? b.color : 0x000000,
+        emissiveIntensity: b.mass > 100 ? 0.8 : 0,
+        metalness: 0.3,
+        roughness: 0.7
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(...b.pos);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      scene.add(mesh);
+      meshes.push(mesh);
+      
+      // Trail
+      const trailGeo = new THREE.BufferGeometry();
+      const trailMat = new THREE.LineBasicMaterial({ 
+        color: b.color, 
+        opacity: 0.4, 
+        transparent: true
+      });
+      const line = new THREE.Line(trailGeo, trailMat);
+      line.visible = showTrails;
+      scene.add(line);
+      trailLines.push(line);
+      trailPoints.push([]);
+      
+      // Label
+      const sprite = createLabelSprite(b.name, 'white');
+      sprite.position.set(b.pos[0], b.pos[1] + b.radius + 8, b.pos[2]);
+      sprite.visible = showLabels;
+      scene.add(sprite);
+      labelSprites.push(sprite);
+      
+      // Arrow
+      const dir = new THREE.Vector3(...b.vel).normalize();
+      const origin = new THREE.Vector3(...b.pos);
+      const length = Math.sqrt(b.vel[0]**2 + b.vel[1]**2 + b.vel[2]**2);
+      const arrow = new THREE.ArrowHelper(dir, origin, length * 5, b.color, 3, 2);
+      arrow.visible = showVectors;
+      scene.add(arrow);
+      velocityArrows.push(arrow);
     });
-    trailPoints.forEach(trail => trail.length = 0);
+    
+    followBody = null;
+    updateBodySelector();
+    updateStats();
   }
 });
 
@@ -279,6 +547,15 @@ function animate(){
       
       // Update labels
       labelSprites[i].position.set(b.pos[0], b.pos[1] + b.radius + 8, b.pos[2]);
+      
+      // Update velocity vectors
+      const velMag = Math.sqrt(b.vel[0]**2 + b.vel[1]**2 + b.vel[2]**2);
+      if(velMag > 0.001){
+        const dir = new THREE.Vector3(...b.vel).normalize();
+        velocityArrows[i].setDirection(dir);
+        velocityArrows[i].setLength(velMag * 5, 3, 2);
+        velocityArrows[i].position.set(...b.pos);
+      }
       
       // Update trails (skip sun)
       if(i > 0){
@@ -299,10 +576,18 @@ function animate(){
   }
   
   // Update camera position
-  camera.position.x = cameraDistance * Math.sin(cameraRotation.phi) * Math.cos(cameraRotation.theta);
-  camera.position.y = cameraDistance * Math.cos(cameraRotation.phi);
-  camera.position.z = cameraDistance * Math.sin(cameraRotation.phi) * Math.sin(cameraRotation.theta);
-  camera.lookAt(0, 0, 0);
+  if(followBody !== null && followBody < bodies.length){
+    const target = bodies[followBody].pos;
+    camera.position.x = target[0] + cameraDistance * Math.sin(cameraRotation.phi) * Math.cos(cameraRotation.theta);
+    camera.position.y = target[1] + cameraDistance * Math.cos(cameraRotation.phi);
+    camera.position.z = target[2] + cameraDistance * Math.sin(cameraRotation.phi) * Math.sin(cameraRotation.theta);
+    camera.lookAt(target[0], target[1], target[2]);
+  } else {
+    camera.position.x = cameraDistance * Math.sin(cameraRotation.phi) * Math.cos(cameraRotation.theta);
+    camera.position.y = cameraDistance * Math.cos(cameraRotation.phi);
+    camera.position.z = cameraDistance * Math.sin(cameraRotation.phi) * Math.sin(cameraRotation.theta);
+    camera.lookAt(0, 0, 0);
+  }
   
   renderer.render(scene, camera);
 }
